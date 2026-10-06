@@ -336,6 +336,19 @@ async def chat_endpoint(request: Request, body: ChatRequest, auth: tuple[str, st
         except Exception as e:
             logger.error(f"Failed to log web chat analytics: {e}")
 
+        # ── Log question for eval-suite seeding (no email/IP/history) ─────────
+        try:
+            _role_map = {'faculty': 'faculty', 'staff': 'staff'}
+            caller_role = _role_map.get(role.lower().split('/')[0].strip(), 'student')
+            with db_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "INSERT INTO chat_questions (question, caller_role) VALUES (%s, %s)",
+                        (body.message, caller_role)
+                    )
+        except Exception as e:
+            logger.error(f"Failed to log chat question: {e}")
+
         # ── 0. Library Search Trigger (Fallback) ──────────────────────────────
         gemini_available = bool(os.getenv("GEMINI_API_KEY") and is_gemini_available())
         openai_available = bool(openai_configured() and is_openai_available())
