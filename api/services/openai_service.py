@@ -72,7 +72,7 @@ def get_provider_order() -> List[str]:
             order.append(name)
         elif name and name not in _KNOWN_PROVIDERS:
             logger.warning(f"Ignoring unknown provider '{name}' in LLM_PROVIDER_ORDER.")
-    return order or list(DEFAULT_PROVIDER_ORDER)
+    return order + [name for name in DEFAULT_PROVIDER_ORDER if name not in order]
 
 
 # ==============================================================================
