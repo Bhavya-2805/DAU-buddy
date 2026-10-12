@@ -280,13 +280,14 @@ CREATE INDEX IF NOT EXISTS idx_analytics_tool ON mcp_analytics(tool_name);
 -- =============================================================================
 -- Chat Questions Table (eval-suite seeding)
 -- Stores only the question text and caller role — no email, IP or history.
--- Only maintainers should have read access to this table.
+-- created_at is the day only. Questions may contain typed personal details:
+-- grant SELECT to maintainers only.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS chat_questions (
     id            SERIAL PRIMARY KEY,
     question      TEXT NOT NULL,
     caller_role   VARCHAR(50) NOT NULL,
-    created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at    TIMESTAMP NOT NULL DEFAULT date_trunc('day', CURRENT_TIMESTAMP)
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_questions_role

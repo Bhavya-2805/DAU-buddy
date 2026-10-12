@@ -15,6 +15,13 @@ import sys
 from core.database import db_connection
 
 
+def safe_cell(value):
+    """Prefix cells that spreadsheets would run as formulas."""
+    if isinstance(value, str) and value[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + value
+    return value
+
+
 def export_questions(*, out_path: str | None = None, role: str | None = None) -> None:
     """Fetch all chat_questions rows and write them as CSV."""
     query = "SELECT id, question, caller_role, created_at FROM chat_questions"
@@ -24,7 +31,7 @@ def export_questions(*, out_path: str | None = None, role: str | None = None) ->
         query += " WHERE caller_role = %s"
         params.append(role)
 
-    query += " ORDER BY created_at"
+    query += " ORDER BY created_at, id"
 
     with db_connection() as conn:
         with conn.cursor() as cursor:
@@ -37,7 +44,7 @@ def export_questions(*, out_path: str | None = None, role: str | None = None) ->
     try:
         writer = csv.writer(dest)
         writer.writerow(col_names)
-        writer.writerows(rows)
+        writer.writerows([[safe_cell(v) for v in row] for row in rows])
     finally:
         if dest is not sys.stdout:
             dest.close()
