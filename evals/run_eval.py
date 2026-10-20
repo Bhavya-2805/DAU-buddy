@@ -125,7 +125,9 @@ class ToolRecorder:
 
     def __enter__(self):
         def recording_dispatch(name, arguments):
-            args = dict(arguments or {})
+            # Keep the raw value: a non-object (e.g. a JSON list) must reach the
+            # validator as a wrong_type error, not be coerced or crash here.
+            args = {} if arguments is None else arguments
             self.calls.append((name, args))
             self._logger.tool_call(name, args)
 
@@ -290,6 +292,8 @@ def _answer_turn(api_key: str, history: list, trace: CaseTrace | None = None) ->
 
 def _args_match(actual: dict, expected: dict) -> bool:
     """Expected args are a subset check, compared case-insensitively as text."""
+    if not isinstance(actual, dict):
+        return False
     for key, want in expected.items():
         if key not in actual:
             return False

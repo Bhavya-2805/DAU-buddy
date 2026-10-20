@@ -8,8 +8,13 @@ from core.database import db_connection
 logger = config.get_logger("core.question_log")
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-# 7+ digits (enrollment/phone) or "98765 43210"; dates and times are kept
-_NUMBER_RE = re.compile(r"\+?\d{7,}|\b\d{5}[\s-]\d{5}\b")
+
+# Phone / enrollment numbers: 7+ unbroken digits, "98765 43210", "987-654-3210",
+# optionally with a +country prefix. ISO dates, DD-MM-YYYY and times are kept.
+_NUMBER_RE = re.compile(
+    r"(?<![\d-])(?:\+\d{1,3}[\s-]?)?"
+    r"(?:\d{7,}|\d{5}[\s-]\d{5}|\d{3}[\s-]\d{3}[\s-]\d{4})(?![\d-])"
+)
 
 _ROLE_BUCKETS = {"faculty": "faculty", "staff": "staff"}
 

@@ -195,3 +195,17 @@ def test_no_out_dir_writes_nothing_and_run_case_keeps_its_shape(monkeypatch):
     monkeypatch.setattr(run_eval.gemini, "call_gemini_api", lambda *a: ("fine", {}))
 
     assert run_eval.run_case({"id": "probe", "turns": [{"user": "hi"}]}, "key", False) == ("PASS", [])
+
+def test_non_object_arguments_are_a_validation_error_not_a_harness_error(monkeypatch, tmp_path):
+    def model(api_key, system_instruction, history):
+        run_eval.tool_bridge.dispatch("search_staff", ["not", "an", "object"])
+        return "answer", {}
+
+    _patch_pipeline(monkeypatch, model)
+    case = {"id": "probe", "turns": [{"user": "hi"}]}
+
+    result = run_eval.execute_case(case, None, False, provider="openai", out_dir=tmp_path)
+
+    assert (result.status, result.fabricated) == ("PASS", True)
+    rules = [e["rule"] for e in _events(result.trajectory) if e["type"] == "tool_validation_error"]
+    assert rules == ["wrong_type"]

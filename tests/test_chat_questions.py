@@ -156,3 +156,14 @@ class TestChatEndpoint:
         assert resp.status_code == 200
         assert resp.json()["response"] == ANSWER
         assert any("Failed to log chat question" in r.getMessage() for r in caplog.records)
+
+@pytest.mark.parametrize("text, expected", [
+    ("call 987-654-3210", "call [number]"),
+    ("+91 98765 43210", "[number]"),
+    ("id 202001001", "id [number]"),
+    ("schedule on 2026-08-07 10:00", "schedule on 2026-08-07 10:00"),
+    ("due 07-08-2026", "due 07-08-2026"),
+    ("room 101 and 102", "room 101 and 102"),
+])
+def test_number_redaction_keeps_dates_and_short_numbers(text, expected):
+    assert redact_personal_details(text) == expected
