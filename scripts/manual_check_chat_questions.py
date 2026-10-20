@@ -10,6 +10,7 @@ whether exactly one row was added to chat_questions.
 
 import argparse
 import hashlib
+import secrets
 import sys
 
 import requests
@@ -17,7 +18,7 @@ import requests
 from core.database import db_connection
 
 TEST_EMAIL = "manual_test@daiict.ac.in"
-RAW_KEY = "dau_sk_manual_check_chat_questions"
+RAW_KEY = "dau_sk_" + secrets.token_urlsafe(24)
 
 
 def count_rows(cursor) -> int:
