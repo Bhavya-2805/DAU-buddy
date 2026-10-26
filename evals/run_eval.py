@@ -109,6 +109,7 @@ class ToolRecorder:
 
     def __init__(self, logger=None):
         self.calls = []
+        self.results = []   # result text of each call, aligned with self.calls
         self.environment_failures = []
         self.invalid_calls = []
         self._logger = logger or _NullTrajectory()
@@ -145,8 +146,10 @@ class ToolRecorder:
             try:
                 result = self._real(name, arguments)
             except Exception as e:
+                self.results.append("")
                 self._logger.tool_result(name, None, repr(e), time.monotonic() - started)
                 raise
+            self.results.append(result if isinstance(result, str) else str(result))
             self._logger.tool_result(name, result, None, time.monotonic() - started)
             return result
 
@@ -238,6 +241,7 @@ class CaseTrace:
     invalid_calls: list = field(default_factory=list)   # (tool, ToolValidationError)
     usages: list = field(default_factory=list)          # one usage dict per model turn
     turn_latency_s: list = field(default_factory=list)  # diagnosis only, not the SLA latency
+    last_results: list = field(default_factory=list)    # tool results of the latest answering attempt
 
 
 def _call_model(provider: str, api_key, system_instruction: str, history: list):
@@ -275,6 +279,7 @@ def _answer_turn(api_key: str, history: list, trace: CaseTrace | None = None) ->
                 trace.usages.append(usage or {})
                 trace.turn_latency_s.append(time.monotonic() - started)
                 trace.invalid_calls += recorder.invalid_calls
+                trace.last_results = recorder.results
                 return answer, recorder.calls
         if attempt < MAX_TRANSIENT_ATTEMPTS:
             trace.logger.retry(
@@ -318,10 +323,48 @@ def _describe(spec) -> str:
     return f"{spec['name']}({args})" if args else spec["name"]
 
 
-def check_turn(turn: dict, answer: str, calls: list) -> list:
-    """Returns a list of failure strings; empty means the turn passed."""
+def _is_subsequence(wanted: list, actual: list) -> bool:
+    remaining = iter(actual)
+    return all(name in remaining for name in wanted)
+
+
+def _loose(text: str) -> str:
+    """Lowercase without spaces, hyphens or underscores: tools match 'CEP209'
+    to 'CEP-209', so grounding must not fail a model for dropping a hyphen."""
+    return re.sub(r"[\s\-_]", "", str(text).lower())
+
+
+def _ungrounded_arguments(specs: list, calls: list, results: list) -> list:
+    """
+    For each {tool, arg} spec, every call to that tool must pass a value that
+    appears in the text of a tool result that came BEFORE it. This is what
+    separates a model that read a biblionumber from one that invented it.
+    """
+    failures = []
+    for spec in specs:
+        for index, (name, args) in enumerate(calls):
+            if name != spec["tool"]:
+                continue
+            value = args.get(spec["arg"]) if isinstance(args, dict) else None
+            if value is None:
+                failures.append(f"{name} was called without {spec['arg']}")
+                continue
+            if _loose(value) not in _loose("\n".join(results[:index])):
+                failures.append(
+                    f"{name}.{spec['arg']}={value!r} does not appear in any earlier tool result"
+                )
+    return failures
+
+
+def check_turn(turn: dict, answer: str, calls: list, results: list | None = None) -> list:
+    """
+    Returns a list of failure strings; empty means the turn passed. `results`
+    is the text each call returned, aligned with `calls`; without it the
+    args_from_results assertion is skipped.
+    """
     failures = []
     low = answer.lower()
+    names = [name for name, _args in calls]
 
     for spec in turn.get("expect_tools", []):
         if not _tool_was_called(calls, spec):
@@ -329,6 +372,16 @@ def check_turn(turn: dict, answer: str, calls: list) -> list:
     for spec in turn.get("forbid_tools", []):
         if _tool_was_called(calls, spec):
             failures.append(f"forbidden tool call happened: {_describe(spec)}")
+    if turn.get("expect_no_tools") and calls:
+        failures.append(f"expected no tool calls, got {names}")
+    if "min_tool_calls" in turn and len(calls) < turn["min_tool_calls"]:
+        failures.append(f"expected at least {turn['min_tool_calls']} tool calls, got {len(calls)}")
+    if "max_tool_calls" in turn and len(calls) > turn["max_tool_calls"]:
+        failures.append(f"expected at most {turn['max_tool_calls']} tool calls, got {len(calls)}")
+    if turn.get("tool_order") and not _is_subsequence(turn["tool_order"], names):
+        failures.append(f"expected tool order {' -> '.join(turn['tool_order'])}, got {names}")
+    if results is not None:
+        failures += _ungrounded_arguments(turn.get("args_from_results", []), calls, results)
     for needle in turn.get("answer_contains", []):
         if needle.lower() not in low:
             failures.append(f"answer missing {needle!r}")
@@ -395,6 +448,23 @@ class CaseResult:
     invalid_calls: int
     turn_latency_s: list
     trajectory: str | None = None
+    tool_calls: int = 0         # resource use: calls made in the answering attempts
+    total_tokens: int = 0       # as the provider reports them (partial for Gemini)
+    tier: int | None = None     # from the case's tier-N tag
+
+
+def case_tier(case: dict) -> int | None:
+    for tag in case.get("tags", []):
+        match = re.fullmatch(r"tier-(\d)", str(tag))
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _rate(rows: list):
+    """PASS / (PASS + FAIL) over the scored rows, or None when none scored."""
+    scored = [r for r in rows if r.status in ("PASS", "FAIL")]
+    return sum(r.status == "PASS" for r in scored) / len(scored) if scored else None
 
 
 def summarize(results: list, *, provider: str, model: str, reps: int) -> dict:
@@ -421,10 +491,19 @@ def summarize(results: list, *, provider: str, model: str, reps: int) -> dict:
             "pass_rate": passed / len(scored) if scored else None,
             "fabrication_rate": sum(r.fabricated for r in scored) / len(scored) if scored else None,
             "outcomes": outcomes,
+            # Diagnosis, not SLA bars: where on the ladder a model breaks, and
+            # what it costs per case.
+            "tier_pass_rate": {
+                str(t): _rate([r for r in rows if r.tier == t])
+                for t in sorted({r.tier for r in rows if r.tier is not None})
+            },
+            "mean_tool_calls": sum(r.tool_calls for r in scored) / len(scored) if scored else None,
+            "mean_total_tokens": sum(r.total_tokens for r in scored) / len(scored) if scored else None,
             "cases": [
                 {
-                    "id": r.case_id, "status": r.status, "outcome": r.outcome,
+                    "id": r.case_id, "tier": r.tier, "status": r.status, "outcome": r.outcome,
                     "fabricated": r.fabricated, "invalid_calls": r.invalid_calls,
+                    "tool_calls": r.tool_calls, "total_tokens": r.total_tokens,
                     "turn_latency_s": [round(s, 3) for s in r.turn_latency_s],
                     "trajectory": r.trajectory,
                 }
@@ -432,17 +511,21 @@ def summarize(results: list, *, provider: str, model: str, reps: int) -> dict:
             ],
         })
 
-    def mean(key):
-        values = [run[key] for run in runs if run[key] is not None]
+    def mean(values):
+        values = [v for v in values if v is not None]
         return sum(values) / len(values) if values else None
 
+    tiers = sorted({t for run in runs for t in run["tier_pass_rate"]})
     return {
         "provider": provider,
         "model": model,
         "reps": reps,
-        "pass_rate": mean("pass_rate"),
-        "fabrication_rate": mean("fabrication_rate"),
+        "pass_rate": mean(run["pass_rate"] for run in runs),
+        "fabrication_rate": mean(run["fabrication_rate"] for run in runs),
         "error_count": sum(run["error"] for run in runs),
+        "tier_pass_rate": {t: mean(run["tier_pass_rate"].get(t) for run in runs) for t in tiers},
+        "mean_tool_calls": mean(run["mean_tool_calls"] for run in runs),
+        "mean_total_tokens": mean(run["mean_total_tokens"] for run in runs),
         "runs": runs,
     }
 
@@ -488,6 +571,7 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
     status = "ERROR"
     messages: list[str] = []
     turns_run = 0
+    tool_calls = 0
 
     try:
         down = _database_unreachable()
@@ -509,6 +593,7 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
                     history.append(ChatMessage(sender="ai", text=answer))
                     answers.append(answer)
                     any_tool_called = any_tool_called or bool(calls)
+                    tool_calls += len(calls)
                     fabricated = fabricated or answer_is_fabricated(turn, answer)
 
                     if verbose:
@@ -518,7 +603,8 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
                             print(f"      {name}({args})")
                         print(f"    < {answer.strip()[:600]}")
 
-                    failures += [f"turn {index}: {f}" for f in check_turn(turn, answer, calls)]
+                    failures += [f"turn {index}: {f}"
+                                 for f in check_turn(turn, answer, calls, trace.last_results)]
                 else:
                     down = _database_unreachable()
                     if down:
@@ -548,6 +634,9 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
         fabricated=fabricated and status != "ERROR", invalid_calls=len(trace.invalid_calls),
         turn_latency_s=trace.turn_latency_s,
         trajectory=str(logger.path) if out_dir else None,
+        tool_calls=tool_calls,
+        total_tokens=_usage_totals(trace.usages)["total_tokens"],
+        tier=case_tier(case),
     )
 
 
@@ -594,7 +683,7 @@ def main() -> int:
             os.environ["GEMINI_MODEL"] = args.model
         model = config.get_gemini_model()
 
-    cases = yaml.safe_load(CASES_FILE.read_text())
+    cases = yaml.safe_load(CASES_FILE.read_text(encoding="utf-8"))
     if args.tag:
         cases = [c for c in cases if args.tag in c.get("tags", [])]
     if args.case:
@@ -654,6 +743,9 @@ def main() -> int:
         print(f"\nmean over {len(summary['runs'])} run(s): pass rate {pct(summary['pass_rate'])}, "
               f"fabrication rate {pct(summary['fabrication_rate'])}, "
               f"{summary['error_count']} ERROR")
+        if summary["tier_pass_rate"]:
+            print("pass rate by tier: " + ", ".join(
+                f"tier-{t} {pct(r)}" for t, r in summary["tier_pass_rate"].items()))
     if args.out:
         print(f"summary: {args.out / 'summary.json'}")
 
