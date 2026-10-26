@@ -164,6 +164,16 @@ class TestChatEndpoint:
     ("schedule on 2026-08-07 10:00", "schedule on 2026-08-07 10:00"),
     ("due 07-08-2026", "due 07-08-2026"),
     ("room 101 and 102", "room 101 and 102"),
+    # brackets, dots and 2-digit groups are redacted too
+    ("call (079) 6826 1641", "call [number]"),
+    ("call 987.654.3210", "call [number]"),
+    ("call 98 76 54 32 10", "call [number]"),
+    # ...while dates in the same shapes, digit lists and year ranges are kept
+    ("due 07.08.2026", "due 07.08.2026"),
+    ("between 2026-08-07 2026-08-08", "between 2026-08-07 2026-08-08"),
+    ("sem 3 4 5 6 7 8 9", "sem 3 4 5 6 7 8 9"),
+    ("the 2022 2023 batch", "the 2022 2023 batch"),
+    ("10:00-11:00 in IC101", "10:00-11:00 in IC101"),
 ])
 def test_number_redaction_keeps_dates_and_short_numbers(text, expected):
     assert redact_personal_details(text) == expected

@@ -26,6 +26,13 @@ def count_rows(cursor) -> int:
     return cursor.fetchone()[0]
 
 
+def remove_test_key() -> None:
+    """Delete the test key's row, so no usable credential outlives the run."""
+    with db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM api_keys WHERE email = %s", (TEST_EMAIL,))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check chat question logging.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8000")
@@ -44,29 +51,33 @@ def main() -> int:
             before = count_rows(cur)
 
     try:
-        resp = requests.post(
-            f"{args.base_url}/api/chat",
-            json={"message": args.question, "history": []},
-            headers={"Authorization": f"Bearer {RAW_KEY}"},
-            timeout=120,
-        )
-    except requests.exceptions.ConnectionError:
-        print(f"ERROR: cannot reach the backend at {args.base_url}.")
-        return 1
-    print(f"chat answered: HTTP {resp.status_code}")
+        try:
+            resp = requests.post(
+                f"{args.base_url}/api/chat",
+                json={"message": args.question, "history": []},
+                headers={"Authorization": f"Bearer {RAW_KEY}"},
+                timeout=120,
+            )
+        except requests.exceptions.ConnectionError:
+            print(f"ERROR: cannot reach the backend at {args.base_url}.")
+            return 1
+        print(f"chat answered: HTTP {resp.status_code}")
 
-    with db_connection() as conn:
-        with conn.cursor() as cur:
-            after = count_rows(cur)
-            cur.execute("SELECT id, question, caller_role, created_at FROM chat_questions ORDER BY id DESC LIMIT 1")
-            row = cur.fetchone()
-    print(f"rows before/after: {before}/{after}")
-    if row:
-        print(f"newest row: id={row[0]} role={row[2]} created_at={row[3]} question={row[1]!r}")
+        with db_connection() as conn:
+            with conn.cursor() as cur:
+                after = count_rows(cur)
+                cur.execute("SELECT id, question, caller_role, created_at FROM chat_questions ORDER BY id DESC LIMIT 1")
+                row = cur.fetchone()
+        print(f"rows before/after: {before}/{after}")
+        if row:
+            print(f"newest row: id={row[0]} role={row[2]} created_at={row[3]} question={row[1]!r}")
 
-    ok = resp.status_code == 200 and after - before == 1
-    print("PASS: exactly one row added." if ok else "FAIL: expected HTTP 200 and exactly one new row.")
-    return 0 if ok else 1
+        ok = resp.status_code == 200 and after - before == 1
+        print("PASS: exactly one row added." if ok else "FAIL: expected HTTP 200 and exactly one new row.")
+        return 0 if ok else 1
+    finally:
+        # Runs on every exit — PASS, FAIL, unreachable backend, Ctrl-C.
+        remove_test_key()
 
 
 if __name__ == "__main__":

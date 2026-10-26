@@ -9,12 +9,24 @@ logger = config.get_logger("core.question_log")
 
 _EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
 
-# Phone / enrollment numbers: 7+ unbroken digits, "98765 43210", "987-654-3210",
-# optionally with a +country prefix. ISO dates, DD-MM-YYYY and times are kept.
-_NUMBER_RE = re.compile(
-    r"(?<![\d-])(?:\+\d{1,3}[\s-]?)?"
-    r"(?:\d{7,}|\d{5}[\s-]\d{5}|\d{3}[\s-]\d{3}[\s-]\d{4})(?![\d-])"
+# A date is matched first and kept, so the number pattern never sees it:
+# YYYY-MM-DD and DD-MM-YYYY with -, / or . and real day/month ranges.
+_DATE = (
+    r"(?<![\w.-])(?:"
+    r"(?:19|20)\d{2}[./-](?:0?[1-9]|1[0-2])[./-](?:0?[1-9]|[12]\d|3[01])"
+    r"|(?:0?[1-9]|[12]\d|3[01])[./-](?:0?[1-9]|1[0-2])[./-](?:19|20)\d{2}"
+    r")(?![.-]?\d)"
 )
+# A phone / enrollment number: optional +country code and (area code), then
+# groups of 2+ digits joined by a space, dot or hyphen — "987-654-3210",
+# "987.654.3210", "(079) 6826 1641", "98 76 54 32 10". It is redacted only when
+# it holds 7+ digits; single digits ("sem 3 4 5") and times ("10:00") never match.
+_NUMBER = (
+    r"(?<!\w)(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,5}\)[\s.-]?)?"
+    r"\d{2,}(?:[\s.-]\d{2,})*(?!\w)"
+)
+_DATE_OR_NUMBER_RE = re.compile(f"(?P<date>{_DATE})|(?P<number>{_NUMBER})")
+_YEAR_RE = re.compile(r"(?:19|20)\d{2}")
 
 _ROLE_BUCKETS = {"faculty": "faculty", "staff": "staff"}
 
@@ -25,8 +37,20 @@ def caller_role_bucket(role: str | None) -> str:
     return _ROLE_BUCKETS.get(first, "student")
 
 
+def _redact_number(match: re.Match) -> str:
+    if match.group("date"):
+        return match.group("date")
+    text = match.group("number")
+    groups = re.findall(r"\d+", text)
+    if sum(len(g) for g in groups) < 7:
+        return text
+    if all(_YEAR_RE.fullmatch(g) for g in groups):   # "the 2022 2023 batch"
+        return text
+    return "[number]"
+
+
 def redact_personal_details(text: str) -> str:
-    return _NUMBER_RE.sub("[number]", _EMAIL_RE.sub("[email]", text))
+    return _DATE_OR_NUMBER_RE.sub(_redact_number, _EMAIL_RE.sub("[email]", text))
 
 
 def log_chat_question(question: str, role: str | None) -> bool:
