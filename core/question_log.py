@@ -19,14 +19,20 @@ _DATE = (
 )
 # A phone / enrollment number: optional +country code and (area code), then
 # groups of 2+ digits joined by a space, dot or hyphen — "987-654-3210",
-# "987.654.3210", "(079) 6826 1641", "98 76 54 32 10". It is redacted only when
-# it holds 7+ digits; single digits ("sem 3 4 5") and times ("10:00") never match.
+# "987.654.3210", "(079) 6826 1641", "98 76 54 32 10". An unbroken run is
+# redacted from 7 digits (enrollment numbers); a grouped one from 10, the length
+# of a mobile or an area code plus landline. Below 10, grouped digits are room
+# lists, slots and times ("rooms 101 102 103", "10.30 11.30"), which the eval
+# suite needs intact. Single digits ("sem 3 4 5") and "10:00" never match.
 _NUMBER = (
     r"(?<!\w)(?:\+\d{1,3}[\s.-]?)?(?:\(\d{2,5}\)[\s.-]?)?"
     r"\d{2,}(?:[\s.-]\d{2,})*(?!\w)"
 )
 _DATE_OR_NUMBER_RE = re.compile(f"(?P<date>{_DATE})|(?P<number>{_NUMBER})")
 _YEAR_RE = re.compile(r"(?:19|20)\d{2}")
+# Clock times and ranges of them, "10.30-12.30 14.00-15.00": kept at any length.
+_TIME = r"(?:[01]?\d|2[0-3])[.:][0-5]\d"
+_TIMES_RE = re.compile(rf"{_TIME}(?:[\s-]+{_TIME})*")
 
 _ROLE_BUCKETS = {"faculty": "faculty", "staff": "staff"}
 
@@ -42,7 +48,9 @@ def _redact_number(match: re.Match) -> str:
         return match.group("date")
     text = match.group("number")
     groups = re.findall(r"\d+", text)
-    if sum(len(g) for g in groups) < 7:
+    if sum(len(g) for g in groups) < (7 if len(groups) == 1 else 10):
+        return text
+    if _TIMES_RE.fullmatch(text):
         return text
     if all(_YEAR_RE.fullmatch(g) for g in groups):   # "the 2022 2023 batch"
         return text

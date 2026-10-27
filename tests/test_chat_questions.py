@@ -174,6 +174,16 @@ class TestChatEndpoint:
     ("sem 3 4 5 6 7 8 9", "sem 3 4 5 6 7 8 9"),
     ("the 2022 2023 batch", "the 2022 2023 batch"),
     ("10:00-11:00 in IC101", "10:00-11:00 in IC101"),
+    # room lists and slots (grouped, under 10 digits) and clock times (any length)
+    ("lab 10.30-12.30 then 14.00-15.00", "lab 10.30-12.30 then 14.00-15.00"),
+    ("free 10.30-12.30 14.00-15.00", "free 10.30-12.30 14.00-15.00"),
+    ("class 10.30 11.30", "class 10.30 11.30"),
+    ("rooms 101 102 103", "rooms 101 102 103"),
+    ("slots 10 11 12 13", "slots 10 11 12 13"),
+    ("IT 227 643 635", "IT 227 643 635"),
+    # a landline with its area code, and a 10-digit number in dotted pairs
+    ("call 079-68261563", "call [number]"),
+    ("call 98.76.54.32.10", "call [number]"),
 ])
 def test_number_redaction_keeps_dates_and_short_numbers(text, expected):
     assert redact_personal_details(text) == expected
