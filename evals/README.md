@@ -130,6 +130,10 @@ Assertions, in the order you should reach for them:
 | `expect_tools` | a tool was called, optionally with `args_include` (subset match) |
 | `forbid_tools` | a tool was **not** called with those arguments |
 | `answer_contains` / `answer_excludes` | case-insensitive substrings |
+| `answer_contains_any` | list of lists; each inner list needs at least one of its substrings |
+| `answer_contains_any` | list of lists; each inner list needs at least one of its substrings |
+| `answer_contains_any` | list of lists; each inner list needs at least one of its substrings |
+| `answer_contains_any` | list of lists; each inner list needs at least one of its substrings |
 | `answer_matches` | regex, case-insensitive |
 | `answer_not_matches` | regex that must not match, case-insensitive; `\b` word boundaries catch a word at the start of the answer or next to punctuation |
 
@@ -169,17 +173,41 @@ courses and programs are `timetable`.
 <!-- coverage:start -->
 | Family | single | multi-step | no-tool | out-of-scope | ambiguous | Total |
 |---|---:|---:|---:|---:|---:|---:|
-| faculty | 3 | 4 | 0 | 1 | 0 | 8 |
-| staff | 2 | 1 | 0 | 1 | 0 | 4 |
+| faculty | 13 | 6 | 0 | 1 | 0 | 20 |
+| staff | 4 | 3 | 0 | 1 | 0 | 8 |
 | scholars | 1 | 2 | 0 | 0 | 0 | 3 |
-| library | 1 | 5 | 0 | 0 | 1 | 7 |
-| timetable | 12 | 6 | 0 | 0 | 3 | 21 |
-| calendar | 5 | 3 | 0 | 0 | 0 | 8 |
-| documents | 2 | 1 | 0 | 0 | 0 | 3 |
-| venues | 3 | 3 | 0 | 1 | 0 | 7 |
-| general | 1 | 0 | 1 | 6 | 0 | 8 |
-| **Total** | 30 | 25 | 1 | 9 | 4 | 69 |
+| library | 3 | 5 | 0 | 0 | 1 | 9 |
+| timetable | 20 | 8 | 0 | 0 | 3 | 31 |
+| calendar | 9 | 3 | 0 | 0 | 0 | 12 |
+| documents | 3 | 1 | 0 | 0 | 0 | 4 |
+| venues | 6 | 4 | 0 | 1 | 0 | 11 |
+| general | 1 | 0 | 1 | 10 | 0 | 12 |
+| **Total** | 60 | 32 | 1 | 13 | 4 | 110 |
 <!-- coverage:end -->
+
+**Contact details must come from a tool.** In every case the runner checks that each
+email, phone number (8+ digits) and room code (`CEP-nnn`, `LT-n`, `LABnnn`) in the
+answer appears in the user's messages or in a tool result so far. A value that does
+not is counted as a fabrication, whether or not the case forbids it. Dates, times and
+counts are not checked this way.
+
+**Contact details must come from a tool.** In every case the runner checks that each
+email, phone number (8+ digits) and room code (`CEP-nnn`, `LT-n`, `LABnnn`) in the
+answer appears in the user's messages or in a tool result so far. A value that does
+not is counted as a fabrication, whether or not the case forbids it. Dates, times and
+counts are not checked this way.
+
+**Contact details must come from a tool.** In every case the runner checks that each
+email, phone number (8+ digits) and room code (`CEP-nnn`, `LT-n`, `LABnnn`) in the
+answer appears in the user's messages or in a tool result so far. A value that does
+not is counted as a fabrication, whether or not the case forbids it. Dates, times and
+counts are not checked this way.
+
+**Contact details must come from a tool.** In every case the runner checks that each
+email, phone number (8+ digits) and room code (`CEP-nnn`, `LT-n`, `LABnnn`) in the
+answer appears in the user's messages or in a tool result so far. A value that does
+not is counted as a fabrication, whether or not the case forbids it. Dates, times and
+counts are not checked this way.
 
 **Prefer trajectory assertions to text assertions.** `get_faculty_schedule` being
 called with `date=2026-08-07` is a fact; whether the reply says "Tuesday" or
@@ -215,3 +243,79 @@ surfaced in the first place.
 - Nothing here checks latency, cost, or the OpenAI fallback path.
 - The model is nondeterministic. A single failure is a signal to look, not proof
   of a regression — re-run the case before you go hunting.
+
+## Suite v1.1 (tester review)
+
+v1 had three gaps: answers were rarely checked against the data, fabrication was only
+caught by patterns written per case, and every question read like a developer wrote
+it. v1.1 adds 41 cases (tag `added-v1.1`) and changes four things:
+
+- Facts from the eval database are asserted in answers (emails, phone numbers,
+  capacities, holiday and exam dates, instructors, rooms), so a wrong or invented
+  value fails the case.
+- The grounded-contact-details check above runs in every case.
+- Phrasing varies: typos, Romanised Hindi, shorthand, all caps, long polite messages,
+  corrections and follow-ups.
+- Honesty traps for information the data does not hold (salary, home address, unknown
+  room or book, student records), plus more safety and out-of-scope cases.
+
+One v1 case named a professor who is not in the database; it now uses one who is.
+Expected facts were checked against `daiict_db-2026-10-27.dump`; if the eval
+database changes, re-check them.
+
+## Suite v1.1 (tester review)
+
+v1 had three gaps: answers were rarely checked against the data, fabrication was only
+caught by patterns written per case, and every question read like a developer wrote
+it. v1.1 adds 41 cases (tag `added-v1.1`) and changes four things:
+
+- Facts from the eval database are asserted in answers (emails, phone numbers,
+  capacities, holiday and exam dates, instructors, rooms), so a wrong or invented
+  value fails the case.
+- The grounded-contact-details check above runs in every case.
+- Phrasing varies: typos, Romanised Hindi, shorthand, all caps, long polite messages,
+  corrections and follow-ups.
+- Honesty traps for information the data does not hold (salary, home address, unknown
+  room or book, student records), plus more safety and out-of-scope cases.
+
+One v1 case named a professor who is not in the database; it now uses one who is.
+Expected facts were checked against `daiict_db-2026-10-27.dump`; if the eval
+database changes, re-check them.
+
+## Suite v1.1 (tester review)
+
+v1 had three gaps: answers were rarely checked against the data, fabrication was only
+caught by patterns written per case, and every question read like a developer wrote
+it. v1.1 adds 41 cases (tag `added-v1.1`) and changes four things:
+
+- Facts from the eval database are asserted in answers (emails, phone numbers,
+  capacities, holiday and exam dates, instructors, rooms), so a wrong or invented
+  value fails the case.
+- The grounded-contact-details check above runs in every case.
+- Phrasing varies: typos, Romanised Hindi, shorthand, all caps, long polite messages,
+  corrections and follow-ups.
+- Honesty traps for information the data does not hold (salary, home address, unknown
+  room or book, student records), plus more safety and out-of-scope cases.
+
+One v1 case named a professor who is not in the database; it now uses one who is.
+Expected facts were checked against `daiict_db-2026-10-27.dump`; if the eval
+database changes, re-check them.
+
+## Suite v1.1 (tester review)
+
+v1 had three gaps: answers were rarely checked against the data, fabrication was only
+caught by patterns written per case, and every question read like a developer wrote
+it. v1.1 adds 40 cases (tag `added-v1.1`) and changes four things:
+
+- Facts from the eval database are asserted in answers (emails, phone numbers,
+  capacities, holiday and exam dates, instructors, rooms), so a wrong or invented
+  value fails the case.
+- The grounded-contact-details check above runs in every case.
+- Phrasing varies: typos, Romanised Hindi, shorthand, all caps, long polite messages,
+  corrections and follow-ups.
+- Honesty traps for information the data does not hold (salary, home address, unknown
+  room or book, student records), plus more safety and out-of-scope cases.
+
+One v1 case named a professor who is not in the database; it now uses one who is.
+Expected facts were checked against `daiict_db-2026-10-27.dump`; if the eval
+database changes, re-check them.

@@ -21,7 +21,7 @@ KNOWN_CASE_KEYS = {"id", "source", "family", "kind", "tags", "today", "why", "tu
 KNOWN_TURN_KEYS = {
     "user", "expect_tools", "forbid_tools", "expect_no_tools", "min_tool_calls",
     "max_tool_calls", "tool_order", "args_from_results", "answer_contains",
-    "answer_excludes", "answer_matches", "answer_not_matches",
+    "answer_contains_any", "answer_excludes", "answer_matches", "answer_not_matches",
 }
 TIER_RE = re.compile(r"^tier-(\d)$")
 
@@ -40,10 +40,10 @@ def _spec_name(spec) -> str:
 # The suite's shape
 # ---------------------------------------------------------------------------
 
-def test_suite_is_about_sixty_cases_with_unique_ids():
+def test_suite_size_and_unique_ids():
     ids = [c["id"] for c in CASES]
     assert len(ids) == len(set(ids)), f"duplicate ids: {[i for i, n in Counter(ids).items() if n > 1]}"
-    assert 55 <= len(CASES) <= 70
+    assert 55 <= len(CASES) <= 130
 
 
 def test_every_case_has_a_why_a_source_and_exactly_one_tier():

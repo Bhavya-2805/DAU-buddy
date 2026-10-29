@@ -356,11 +356,32 @@ def _ungrounded_arguments(specs: list, calls: list, results: list) -> list:
     return failures
 
 
-def check_turn(turn: dict, answer: str, calls: list, results: list | None = None) -> list:
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE_RE = re.compile(r"(?<![\d-])(?:\d{2,4}-)?\d{8,}(?!\d)")
+_ROOM_RE = re.compile(r"\b(?:CEP-\d{2,3}|LT-?\d{1,2}|LAB\s?-?\d{3})\b", re.IGNORECASE)
+
+
+def ungrounded_facts(answer: str, known_text: str) -> list:
+    """
+    Emails, phone numbers and room codes in the answer that appear nowhere in
+    `known_text` (the user's messages and every tool result so far). Such a
+    value was invented, whatever the case author thought to forbid.
+    """
+    known, known_digits = _loose(known_text), re.sub(r"\D", "", known_text)
+    found = [e for e in _EMAIL_RE.findall(answer) if _loose(e) not in known]
+    found += [n for n in _PHONE_RE.findall(answer)
+              if re.sub(r"\D", "", n)[-8:] not in known_digits]
+    found += [r for r in _ROOM_RE.findall(answer) if _loose(r) not in known]
+    return found
+
+
+def check_turn(turn: dict, answer: str, calls: list, results: list | None = None,
+               known_text: str | None = None) -> list:
     """
     Returns a list of failure strings; empty means the turn passed. `results`
     is the text each call returned, aligned with `calls`; without it the
-    args_from_results assertion is skipped.
+    args_from_results assertion is skipped. `known_text`, when given, switches
+    on the check that contact details in the answer came from a tool result.
     """
     failures = []
     low = answer.lower()
@@ -385,6 +406,12 @@ def check_turn(turn: dict, answer: str, calls: list, results: list | None = None
     for needle in turn.get("answer_contains", []):
         if needle.lower() not in low:
             failures.append(f"answer missing {needle!r}")
+    for group in turn.get("answer_contains_any", []):
+        if not any(needle.lower() in low for needle in group):
+            failures.append(f"answer has none of {group}")
+    if known_text is not None:
+        failures += [f"answer states {fact!r}, which no tool returned"
+                     for fact in ungrounded_facts(answer, known_text)]
     failures += _exclude_violations(turn, answer)
     for pattern in turn.get("answer_matches", []):
         if not re.search(pattern, answer, re.IGNORECASE):
@@ -565,6 +592,7 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
 
     history: list[ChatMessage] = []
     answers: list[str] = []
+    known: list[str] = []       # user messages and tool results seen so far
     any_tool_called = False
     failures: list[str] = []
     fabricated = False
@@ -594,7 +622,10 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
                     answers.append(answer)
                     any_tool_called = any_tool_called or bool(calls)
                     tool_calls += len(calls)
-                    fabricated = fabricated or answer_is_fabricated(turn, answer)
+                    known += [turn["user"], *trace.last_results]
+                    known_text = "\n".join(known)
+                    fabricated = (fabricated or answer_is_fabricated(turn, answer)
+                                  or bool(ungrounded_facts(answer, known_text)))
 
                     if verbose:
                         print(f"\n    > {turn['user']}")
@@ -604,7 +635,7 @@ def execute_case(case: dict, api_key, verbose: bool, *, provider: str = "gemini"
                         print(f"    < {answer.strip()[:600]}")
 
                     failures += [f"turn {index}: {f}"
-                                 for f in check_turn(turn, answer, calls, trace.last_results)]
+                                 for f in check_turn(turn, answer, calls, trace.last_results, known_text)]
                 else:
                     down = _database_unreachable()
                     if down:
